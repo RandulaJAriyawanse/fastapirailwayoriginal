@@ -8,11 +8,21 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from utils.prompt import ClientMessage, convert_to_openai_messages
 from utils.tools import get_current_weather
+from fastapi.middleware.cors import CORSMiddleware
 
 
 load_dotenv(".env.local")
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow the frontend origin(s)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
