@@ -1,36 +1,19 @@
 import os
 import json
 from typing import List
-from pydantic import BaseModel
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
-from fastapi.responses import StreamingResponse
 from openai import OpenAI
-from utils.prompt import ClientMessage, convert_to_openai_messages
+from utils.prompt import ClientMessage
 from utils.tools import get_current_weather
-from fastapi.middleware.cors import CORSMiddleware
+from utils.utils import sanitize_text
+import time
 
 
 load_dotenv(".env.local")
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow the frontend origin(s)
-    allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
-)
-
-
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
-
-
-class Request(BaseModel):
-    messages: List[ClientMessage]
 
 
 available_tools = {
@@ -43,6 +26,7 @@ def stream_text(messages: List[ClientMessage], protocol: str = "data"):
         messages=messages,
         model="gpt-4o",
         stream=True,
+        stream_options={"include_usage": True},
         tools=[
             {
                 "type": "function",
@@ -87,28 +71,30 @@ def stream_text(messages: List[ClientMessage], protocol: str = "data"):
         draft_tool_calls_index = -1
 
         for chunk in stream:
+            print("_______________________")
+            print(chunk)
             for choice in chunk.choices:
                 if choice.finish_reason == "stop":
                     continue
 
                 elif choice.finish_reason == "tool_calls":
                     for tool_call in draft_tool_calls:
+                        print("YIELD 9")
                         yield '9:{{"toolCallId":"{id}","toolName":"{name}","args":{args}}}\n'.format(
                             id=tool_call["id"],
                             name=tool_call["name"],
-                            args=tool_call["arguments"],
+                            args=json.dumps("testtest"),
                         )
-
                     for tool_call in draft_tool_calls:
                         tool_result = available_tools[tool_call["name"]](
                             **json.loads(tool_call["arguments"])
                         )
-
+                        print("YIELD a")
                         yield 'a:{{"toolCallId":"{id}","toolName":"{name}","args":{args},"result":{result}}}\n'.format(
                             id=tool_call["id"],
                             name=tool_call["name"],
-                            args=tool_call["arguments"],
-                            result=json.dumps(tool_result),
+                            args=json.dumps("testtest"),
+                            result=json.dumps("testtest"),
                         )
 
                 elif choice.delta.tool_calls:
@@ -122,37 +108,42 @@ def stream_text(messages: List[ClientMessage], protocol: str = "data"):
                             draft_tool_calls.append(
                                 {"id": id, "name": name, "arguments": ""}
                             )
-
+                            print(
+                                "draft_tool_calls append: ",
+                                {"id": id, "name": name, "arguments": ""},
+                            )
+                            print("YIELD b")
+                            yield 'b:{{"toolCallId":"{id}","toolName":"{name}"}}\n'.format(
+                                id=id, name=name
+                            )
                         else:
                             draft_tool_calls[draft_tool_calls_index][
                                 "arguments"
                             ] += arguments
+                            time.sleep(0.5)
+                            print("draft_tool_calls append args: ", arguments)
+                            print("type ", type(arguments))
+                            print("YIELD c")
+                            yield 'c:{{"toolCallId":"{id}","argsTextDelta":"{argsTextDelta}"}}\n'.format(
+                                id=draft_tool_calls[draft_tool_calls_index]["id"],
+                                argsTextDelta=sanitize_text("test"),
+                            )
 
                 else:
-                    yield '0:"{text}"\n'.format(text=choice.delta.content)
+                    print("YIELD 0")
+                    yield '0:"{text}"\n'.format(
+                        text=sanitize_text(choice.delta.content)
+                    )
 
             if chunk.choices == []:
                 usage = chunk.usage
                 prompt_tokens = usage.prompt_tokens
                 completion_tokens = usage.completion_tokens
+                print("#########################################")
 
                 yield 'd:{{"finishReason":"{reason}","usage":{{"promptTokens":{prompt},"completionTokens":{completion}}}}}\n'.format(
                     reason="tool-calls" if len(draft_tool_calls) > 0 else "stop",
                     prompt=prompt_tokens,
                     completion=completion_tokens,
                 )
-
-
-@app.get("/")
-async def root():
-    return {"greeting": "Hello, World!", "message": "Welcome to FastAPI!"}
-
-
-@app.post("/api/chat")
-async def handle_chat_data(request: Request, protocol: str = Query("data")):
-    messages = request.messages
-    openai_messages = convert_to_openai_messages(messages)
-
-    response = StreamingResponse(stream_text(openai_messages, protocol))
-    response.headers["x-vercel-ai-data-stream"] = "v1"
-    return response
+        # print("USAGE: ", stream.usage)

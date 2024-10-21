@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Any
 
 
 class ClientAttachment(BaseModel):
@@ -10,5 +11,5 @@ class ClientAttachment(BaseModel):
 class ToolInvocation(BaseModel):
     toolCallId: str
     toolName: str
-    args: dict
-    result: dict
+    args: Any
+    result: Any
